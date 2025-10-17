@@ -25,8 +25,8 @@ resource "google_project_service" "cloudrun" {
   disable_on_destroy = false
 }
 
-resource "google_project_service" "containerregistry" {
-  service            = "containerregistry.googleapis.com"
+resource "google_project_service" "artifactregistry" {
+  service            = "artifactregistry.googleapis.com"
   disable_on_destroy = false
 }
 
@@ -38,7 +38,7 @@ resource "google_project_service" "cloudbuild" {
 # Configure Docker provider to use GCR
 provider "docker" {
   registry_auth {
-    address  = "gcr.io"
+    address  = "${var.region}-docker.pkg.dev"
     username = "oauth2accesstoken"
     password = data.google_client_config.default.access_token
   }
@@ -47,9 +47,17 @@ provider "docker" {
 # Get current project configuration
 data "google_client_config" "default" {}
 
-# Build and push Docker image to GCR
+# Create Artifact Registry repository
+resource "google_artifact_registry_repository" "app" {
+  location      = var.region
+  repository_id = var.service_name
+  format        = "DOCKER"
+  description   = "Docker repository for ${var.service_name}"
+}
+
+# Build Docker image
 resource "docker_image" "app" {
-  name = "gcr.io/${var.project_id}/${var.service_name}:${var.docker_image_tag}"
+  name = "${var.region}-docker.pkg.dev/${var.project_id}/${var.service_name}/${var.service_name}:${var.docker_image_tag}"
 
   build {
     context    = "${path.module}/../.."
@@ -59,13 +67,20 @@ resource "docker_image" "app" {
   }
 
   depends_on = [
-    google_project_service.containerregistry,
-    google_project_service.cloudbuild
+    google_project_service.cloudbuild,
+    google_artifact_registry_repository.app
   ]
 }
 
-# Note: Skipping docker_registry_image due to auth issues
-# The image is already pushed by docker_image resource
+# Push Docker image to Artifact Registry
+resource "docker_registry_image" "app" {
+  name = docker_image.app.name
+  
+  depends_on = [
+    google_artifact_registry_repository.app,
+    docker_image.app
+  ]
+}
 
 # Deploy to Cloud Run
 resource "google_cloud_run_service" "app" {
@@ -126,7 +141,7 @@ resource "google_cloud_run_service" "app" {
 
   depends_on = [
     google_project_service.cloudrun,
-    docker_image.app
+    docker_registry_image.app
   ]
 }
 
