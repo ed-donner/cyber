@@ -18,9 +18,7 @@ DO NOT use any other config values like:
 
 ONLY use: "auto"
 
-Correct format: {"code_files": [{"filename": "analysis.py", "content": "the actual code", "config": "auto"}]}
-
-IMPORTANT: Call semgrep_scan once, get the results, then proceed with your own analysis. Do not repeat the tool call.
+Correct format: {"code_files": [{"path": "<THE_ABSOLUTE_PATH_PROVIDED_BELOW>", "content": "the actual code"}], "config": "auto"}
 
 Your analysis process should be:
 1. First, use the semgrep_scan tool ONCE to scan the provided code (config: "auto")
@@ -43,9 +41,16 @@ For each vulnerability found (from both semgrep and your own analysis), provide:
 Be thorough and practical in your analysis. Don't duplicate issues between semgrep results and your own findings.
 """
 
-def get_analysis_prompt(code: str) -> str:
-    """Generate the analysis prompt for the security agent."""
-    return f"Please analyze the following Python code for security vulnerabilities:\n\n{code}"
+def get_analysis_prompt(code: str, code_file_path: str) -> str:
+    """Generate the analysis prompt for the security agent.
+    code_file_path must be the absolute path to a real file on disk containing the code (for semgrep_scan).
+    """
+    return f"""The code to analyze is in a file at this exact path (use this path when calling semgrep_scan):
+PATH: {code_file_path}
+ 
+Please analyze the code in that file for security vulnerabilities. The code is also shown below for your reference:
+ 
+{code}"""
 
 def enhance_summary(code_length: int, agent_summary: str) -> str:
     """Enhance the agent's summary with additional context."""

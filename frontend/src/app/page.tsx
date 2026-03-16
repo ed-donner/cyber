@@ -55,7 +55,7 @@ export default function Home() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ code: codeContent }),
+        body: JSON.stringify({ code: codeContent, file_name: fileName }),
       });
 
       if (!response.ok) {

@@ -192,12 +192,9 @@ Type `yes` when prompted. This will take 5-10 minutes as it:
 **Important**: If you make code changes and redeploy, Terraform may not detect the changes automatically. If your updates don't appear, force a rebuild:
 
 ```bash
-# Force rebuild of Docker image when code changes
-terraform taint docker_image.app
-terraform taint docker_registry_image.app
-
-# Then redeploy using the commands from the prior step
----
+# Force rebuild of Docker image when code changes (The terraform taint command is deprecated as of Terraform v0.15.2 and later).  Suggest to use
+terraform apply -replace="docker_image.app" -replace="docker_registry_image.app" -replace="google_cloud_run_service.app" -var="openai_api_key=$OPENAI_API_KEY" -var="semgrep_app_token=$SEMGREP_APP_TOKEN"
+```
 
 ## Step 6: Get Your Application URL
 
