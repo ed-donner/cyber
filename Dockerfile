@@ -6,6 +6,14 @@ RUN npm ci
 COPY frontend/ .
 RUN npm run build
 
+# Resolve Python deps natively on the build host (no QEMU) to avoid uv
+# segfaults when cross-building linux/amd64 from an arm64 host.
+FROM --platform=$BUILDPLATFORM python:3.12-slim AS deps
+WORKDIR /app
+RUN pip install --no-cache-dir uv
+COPY backend/pyproject.toml backend/uv.lock* ./
+RUN uv export --frozen --no-dev --format requirements-txt > /tmp/requirements.txt
+
 # Production image
 FROM python:3.12-slim
 WORKDIR /app
@@ -15,13 +23,17 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv for Python package management
-RUN pip install uv
+# Install uv so `uv run` works at container startup (runs natively on
+# Azure/Cloud Run and via Rosetta on Docker Desktop). Don't execute uv
+# during the build — it segfaults under QEMU cross-build emulation.
+RUN pip install --no-cache-dir uv
 
-# Copy Python dependencies and install
-COPY backend/pyproject.toml backend/uv.lock* ./
-RUN uv sync --frozen
-RUN uv tool install semgrep
+# Install locked Python dependencies (resolved in the deps stage) with pip,
+# not uv, because uv crashes under QEMU. semgrep ships as a regular Python
+# dependency in pyproject.toml, so no separate `uv tool install` is needed.
+COPY --from=deps /tmp/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
 # Copy backend source
 COPY backend/ ./
 
