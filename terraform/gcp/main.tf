@@ -6,9 +6,9 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 5.0"
     }
-    docker = {
-      source  = "kreuzwerker/docker"
-      version = "~> 3.0"
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
     }
   }
 }
@@ -35,15 +35,6 @@ resource "google_project_service" "cloudbuild" {
   disable_on_destroy = false
 }
 
-# Configure Docker provider to use GCR
-provider "docker" {
-  registry_auth {
-    address  = "${var.region}-docker.pkg.dev"
-    username = "oauth2accesstoken"
-    password = data.google_client_config.default.access_token
-  }
-}
-
 # Get current project configuration
 data "google_client_config" "default" {}
 
@@ -55,30 +46,50 @@ resource "google_artifact_registry_repository" "app" {
   description   = "Docker repository for ${var.service_name}"
 }
 
-# Build Docker image
-resource "docker_image" "app" {
-  name = "${var.region}-docker.pkg.dev/${var.project_id}/${var.service_name}/${var.service_name}:${var.docker_image_tag}"
+locals {
+  registry_host = "${var.region}-docker.pkg.dev"
+  app_image     = "${local.registry_host}/${var.project_id}/${var.service_name}/${var.service_name}:${var.docker_image_tag}"
+  build_context = abspath("${path.module}/../..")
 
-  build {
-    context    = "${path.module}/../.."
-    dockerfile = "Dockerfile"
-    platform   = "linux/amd64"
-    no_cache   = true
+  # Hash of everything baked into the image, so a code change forces a rebuild.
+  source_hash = sha1(join("", [
+    for f in sort(tolist(setunion(
+      fileset(local.build_context, "Dockerfile"),
+      fileset(local.build_context, "backend/**"),
+      fileset(local.build_context, "frontend/src/**"),
+      fileset(local.build_context, "frontend/package*.json"),
+      fileset(local.build_context, "frontend/*.ts"),
+      fileset(local.build_context, "frontend/*.mjs"),
+      fileset(local.build_context, "frontend/*.json"),
+    ))) : filesha1("${local.build_context}/${f}")
+  ]))
+}
+
+# Built via buildx rather than the kreuzwerker provider, whose legacy build API
+# corrupts the context on cross-platform (arm64 host -> linux/amd64) builds.
+resource "null_resource" "docker_build_push" {
+  triggers = {
+    source_hash = local.source_hash
+    image       = local.app_image
+  }
+
+  provisioner "local-exec" {
+    working_dir = local.build_context
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
+      set -euo pipefail
+      gcloud auth configure-docker '${local.registry_host}' --quiet
+      docker buildx build \
+        --platform linux/amd64 \
+        --tag '${local.app_image}' \
+        --push \
+        .
+    EOT
   }
 
   depends_on = [
     google_project_service.cloudbuild,
     google_artifact_registry_repository.app
-  ]
-}
-
-# Push Docker image to Artifact Registry
-resource "docker_registry_image" "app" {
-  name = docker_image.app.name
-  
-  depends_on = [
-    google_artifact_registry_repository.app,
-    docker_image.app
   ]
 }
 
@@ -90,7 +101,7 @@ resource "google_cloud_run_service" "app" {
   template {
     spec {
       containers {
-        image = docker_image.app.name
+        image = local.app_image
 
         resources {
           limits = {
@@ -126,6 +137,9 @@ resource "google_cloud_run_service" "app" {
     }
 
     metadata {
+      # The :latest tag never changes, so tie the revision to image content.
+      name = "${var.service_name}-${substr(local.source_hash, 0, 10)}"
+
       annotations = {
         "autoscaling.knative.dev/minScale" = "0"
         "autoscaling.knative.dev/maxScale" = "1"
@@ -141,7 +155,7 @@ resource "google_cloud_run_service" "app" {
 
   depends_on = [
     google_project_service.cloudrun,
-    docker_registry_image.app
+    null_resource.docker_build_push
   ]
 }
 

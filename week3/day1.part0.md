@@ -159,19 +159,65 @@ Open a **new terminal** in Cursor (keep the backend running) and run:
 ```bash
 cd frontend
 npm install  # First time only
-npm run dev
+```
+If you receive the output `found 0 vulnerabilities`, you can skip to [Test the Application](#test-the-application)
+
+However, after running `npm install`, you _may_ receive a warning about vulnerabilities in some of the packages we have in our project dependencies. This is because, when you run `npm install`, an audit is automatically triggered, which checks your dependency list against a database containing a list of known vulnerabilities. At the time this code was written, the audit was clean (no vulerabilities), but if any new vulnerabilities have been identified since this code was written, they will be flagged for you as a warning, even though they may not even be reachable reachable in your app. If you wish to address the vulnerabilities, here are some steps you can follow:
+
+1. Run an audit to see a full report
+```bash
+npm audit
 ```
 
+2. Automatically apply any non-breaking fixes
+```bash
+npm audit fix
+```
+
+3. Re-run the audit to check what remains to be fixed
+```bash
+npm audit
+```
+
+4. Upgrade Next.js explicitly (rather than the suggested `npm audit fix --force`, which picks a version for you)
+```bash
+npm install next@latest eslint-config-next@latest
+```
+
+5. Check the results
+```bash
+npm ls next eslint-config-next
+```
+
+6. Build the app to prove your static export still produces valid output. We need to confirm everything works before we run the app or put it into a container image to be run.
+```bash
+npm run build
+```
+
+7. Run the audit one last time to confirm there are no more vulerabilities
+```bash
+npm audit
+```
+
+At this stage you should (hopefully) see the output:
+```found 0 vulnerabilities```
+
+If these steps still don't work for you, LLMs are great at helping to resolve issues like this. If you give your LLM chat access to your terminal window, it should be able to help resolve any warnings.
+
+### Test the Application
+Run your application locally
+
+```bash
+npm run dev
+```
 You should see output like:
 ```
-  ▲ Next.js 15.x.x
+  ▲ Next.js 16.3.1 (Turbopack)
   - Local:        http://localhost:3000
   - Environments: .env
 
 ✓ Ready in 2.1s
 ```
-
-### Test the Application
 
 1. Open your browser to http://localhost:3000
    
